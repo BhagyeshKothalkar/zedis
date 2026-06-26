@@ -1,5 +1,4 @@
 #include "resp.h"
-#include "slab.h"
 
 #include <ctype.h>
 #include <inttypes.h>
@@ -8,12 +7,9 @@
 #include <string.h>
 #include <unistd.h>
 
-/* =========================================================================
- * Internal node allocator
- * ====================================================================== */
+#include "slab.h"
 
 static resp_node_t *node_alloc(resp_parser_t *parser) {
-  /* Try the free-list first — O(1), no allocator call. */
   resp_node_t *node = parser->free_list;
   if (node != NULL) {
     parser->free_list = node->next;
@@ -21,7 +17,6 @@ static resp_node_t *node_alloc(resp_parser_t *parser) {
     return node;
   }
 
-  /* Fall back to the slab, then to malloc. */
   if (parser->slab != NULL) {
     resp_node_t *fresh = zedis_slab_alloc(parser->slab, sizeof(resp_node_t));
     if (fresh != NULL) {
@@ -55,10 +50,6 @@ static void node_list_release(resp_parser_t *parser, resp_node_t *head) {
   }
 }
 
-/* =========================================================================
- * Lifecycle
- * ====================================================================== */
-
 int resp_parser_init_ex(resp_parser_t *parser, struct zedis_slab *slab,
                         size_t buf_cap) {
   if (buf_cap == 0) {
@@ -86,11 +77,6 @@ void resp_parser_destroy(resp_parser_t *parser) {
     return;
   }
 
-  /* The free-list nodes were either slab-allocated (slab owns the memory)
-   * or malloc'd.  We cannot distinguish them here, so we leak slab nodes
-   * (they go away with the slab) and free only nodes that came from
-   * malloc.  A simpler approach: if there is no slab, free them; if there
-   * is a slab, leave them (the slab arena will reclaim the memory). */
   if (parser->slab == NULL) {
     resp_node_t *n = parser->free_list;
     while (n != NULL) {
@@ -110,15 +96,6 @@ void resp_parser_reset(resp_parser_t *parser) {
   /* Keep the free-list intact — nodes can be reused. */
 }
 
-/* =========================================================================
- * Feed / write interface
- * ====================================================================== */
-
-/*
- * Compact the buffer: slide [r_pos, w_pos) back to index 0.
- * Called only when we do not have enough tail space to absorb new data but
- * there IS enough total free space (r_pos + tail room >= len).
- */
 static void compact(resp_parser_t *parser) {
   if (parser->r_pos == 0) {
     return;
@@ -146,14 +123,12 @@ int resp_parser_feed(resp_parser_t *parser, const char *data, size_t len) {
     return 0;
   }
 
-  /* Fast path: enough tail space — no compaction needed. */
   if (parser->w_pos + len <= parser->buf_cap) {
     memcpy(parser->buf + parser->w_pos, data, len);
     parser->w_pos += len;
     return 0;
   }
 
-  /* Check whether compaction would free enough space. */
   size_t free_total = parser->buf_cap - (parser->w_pos - parser->r_pos);
   if (free_total < len) {
     return -1; /* buffer full */
@@ -165,15 +140,6 @@ int resp_parser_feed(resp_parser_t *parser, const char *data, size_t len) {
   return 0;
 }
 
-/* =========================================================================
- * Parser internals
- * ====================================================================== */
-
-/*
- * Search for \r\n starting at parser->buf[search_from].
- * On success writes the index of the \r into *crlf_pos and returns 0.
- * Returns -1 if not found within [search_from, w_pos).
- */
 static int find_crlf(const resp_parser_t *parser, size_t search_from,
                      size_t *crlf_pos) {
   const char *buf = parser->buf;
@@ -188,10 +154,6 @@ static int find_crlf(const resp_parser_t *parser, size_t search_from,
   return -1;
 }
 
-/*
- * Parse a decimal integer from buf[from, to).
- * Handles an optional leading '-'.
- */
 static int parse_int_range(const char *buf, size_t from, size_t to,
                            int64_t *out) {
   if (from >= to) {
@@ -241,53 +203,12 @@ static void node_append(resp_node_t **head, resp_node_t **tail, size_t *count,
 static resp_parse_status_t parse_value(resp_parser_t *parser, size_t *pos,
                                        resp_value_t *out);
 
-/*
- * parse_inline — handle the Redis inline command format.
- *
- * Inline commands arrive when a client sends plain text instead of the
- * structured RESP wire format.  They are common from telnet sessions,
- * simple scripts, and health-check probes.
- *
- * Wire format
- * -----------
- *   PING\r\n
- *   SET foo bar\r\n
- *   GET foo\r\n
- *
- * Rules (matching Redis behaviour):
- *   • The first byte was NOT one of the RESP prefix bytes (+, -, :, $, *),
- *     so we treat the entire line as a space-separated token list.
- *   • The line terminator may be \r\n or bare \n.  We accept both.
- *   • Tokens are separated by one or more ASCII space or tab characters.
- *   • There is no quoting — single/double quotes are treated as ordinary
- *     characters, exactly as Redis does.
- *   • An empty line (just \r\n or \n) produces a zero-element array; the
- *     command dispatcher rejects it with the usual "invalid command format"
- *     error, which is the correct Redis behaviour.
- *   • The result is RESP_TYPE_ARRAY with RESP_TYPE_BULK nodes, identical in
- *     shape to a parsed multibulk command.  Nothing downstream needs to know
- *     the message arrived inline.
- *
- * Token lifetime
- * --------------
- * Bulk pointers point directly into parser->buf[] — same zero-copy contract
- * as all other bulk strings: valid until the next resp_parser_feed() or
- * resp_parser_next() call.  Tokens are NOT NUL-terminated; callers must
- * use bulk_len.
- *
- * Called from parse_value()'s default branch when the first byte is not a
- * recognised RESP type prefix.
- */
 static resp_parse_status_t parse_inline(resp_parser_t *parser, size_t *pos,
                                         resp_value_t *out) {
   const char *buf = parser->buf;
   size_t w = parser->w_pos;
   size_t start = *pos;
 
-  /*
-   * Scan for a newline.  We accept both \r\n and bare \n as terminators.
-   * If no newline is present yet we need more data.
-   */
   size_t lf_pos = 0;
   int found = 0;
 
@@ -302,22 +223,12 @@ static resp_parse_status_t parse_inline(resp_parser_t *parser, size_t *pos,
   if (!found) {
     return RESP_NEED_MORE;
   }
-
-  /*
-   * line_end: one past the last content byte (strips the optional \r
-   * before \n so token scanning never sees the terminator).
-   */
   size_t line_end =
       (lf_pos > start && buf[lf_pos - 1] == '\r') ? lf_pos - 1 : lf_pos;
 
   /* Position for the next command starts after the \n. */
   size_t next_pos = lf_pos + 1;
 
-  /*
-   * Tokenise [start, line_end) on ASCII spaces and tabs.
-   * Build a resp_node_t linked list — same structure parse_array() builds —
-   * so the result is indistinguishable from a multibulk command to callers.
-   */
   resp_node_t *head = NULL;
   resp_node_t *tail = NULL;
   size_t child_count = 0;
@@ -403,14 +314,6 @@ static resp_parse_status_t parse_array(resp_parser_t *parser, size_t *pos,
   return RESP_OK;
 }
 
-/*
- * Core recursive descent parser.
- *
- * *pos is an absolute index into parser->buf[].  On RESP_OK it is advanced
- * past the consumed bytes.  On RESP_NEED_MORE / RESP_ERROR it is left
- * unchanged so the caller can retry from the same position after more data
- * arrives.
- */
 static resp_parse_status_t parse_value(resp_parser_t *parser, size_t *pos,
                                        resp_value_t *out) {
   const char *buf = parser->buf;
@@ -423,26 +326,15 @@ static resp_parse_status_t parse_value(resp_parser_t *parser, size_t *pos,
   char prefix = buf[*pos];
   size_t line_start = *pos + 1;
 
-  /*
-   * For the four typed RESP prefixes (+, -, :, $, *) the header line
-   * is always terminated by \r\n.  We find it once here and use it in
-   * every case below.
-   *
-   * The inline path (default:) does its own newline scan inside
-   * parse_inline() — it accepts bare \n and does not need crlf_pos —
-   * so we must NOT apply the find_crlf guard unconditionally.  We
-   * therefore check the prefix first and fall through to parse_inline
-   * before attempting the CRLF search.
-   */
   switch (prefix) {
-  case '+':
-  case '-':
-  case ':':
-  case '$':
-  case '*':
-    break;
-  default:
-    return parse_inline(parser, pos, out);
+    case '+':
+    case '-':
+    case ':':
+    case '$':
+    case '*':
+      break;
+    default:
+      return parse_inline(parser, pos, out);
   }
 
   size_t crlf_pos = 0;
@@ -451,119 +343,104 @@ static resp_parse_status_t parse_value(resp_parser_t *parser, size_t *pos,
   }
 
   switch (prefix) {
+    /* +<string>\r\n */
+    case '+':
+      out->type = RESP_TYPE_SIMPLE;
+      out->bulk = (char *)(buf + line_start);
+      out->bulk_len = crlf_pos - line_start;
+      *pos = crlf_pos + 2;
+      return RESP_OK;
 
-  /* +<string>\r\n */
-  case '+':
-    out->type = RESP_TYPE_SIMPLE;
-    out->bulk = (char *)(buf + line_start);
-    out->bulk_len = crlf_pos - line_start;
-    *pos = crlf_pos + 2;
-    return RESP_OK;
+    /* -<message>\r\n */
+    case '-':
+      out->type = RESP_TYPE_ERROR;
+      out->bulk = (char *)(buf + line_start);
+      out->bulk_len = crlf_pos - line_start;
+      *pos = crlf_pos + 2;
+      return RESP_OK;
 
-  /* -<message>\r\n */
-  case '-':
-    out->type = RESP_TYPE_ERROR;
-    out->bulk = (char *)(buf + line_start);
-    out->bulk_len = crlf_pos - line_start;
-    *pos = crlf_pos + 2;
-    return RESP_OK;
-
-  /* :<integer>\r\n */
-  case ':': {
-    int64_t value = 0;
-    if (parse_int_range(buf, line_start, crlf_pos, &value) != 0) {
-      return RESP_ERROR;
-    }
-    out->type = RESP_TYPE_INTEGER;
-    out->integer = value;
-    *pos = crlf_pos + 2;
-    return RESP_OK;
-  }
-
-  /* $<len>\r\n<data>\r\n */
-  case '$': {
-    int64_t bulk_len = 0;
-    if (parse_int_range(buf, line_start, crlf_pos, &bulk_len) != 0) {
-      return RESP_ERROR;
-    }
-
-    /* Null bulk string: $-1\r\n */
-    if (bulk_len < 0) {
-      out->type = RESP_TYPE_NULL;
+    /* :<integer>\r\n */
+    case ':': {
+      int64_t value = 0;
+      if (parse_int_range(buf, line_start, crlf_pos, &value) != 0) {
+        return RESP_ERROR;
+      }
+      out->type = RESP_TYPE_INTEGER;
+      out->integer = value;
       *pos = crlf_pos + 2;
       return RESP_OK;
     }
 
-    size_t data_start = crlf_pos + 2;
-    size_t data_end = data_start + (size_t)bulk_len;
+    /* $<len>\r\n<data>\r\n */
+    case '$': {
+      int64_t bulk_len = 0;
+      if (parse_int_range(buf, line_start, crlf_pos, &bulk_len) != 0) {
+        return RESP_ERROR;
+      }
 
-    /* Need data_end + 2 bytes (\r\n) to be available. */
-    if (data_end + 2 > w) {
-      return RESP_NEED_MORE;
-    }
+      /* Null bulk string: $-1\r\n */
+      if (bulk_len < 0) {
+        out->type = RESP_TYPE_NULL;
+        *pos = crlf_pos + 2;
+        return RESP_OK;
+      }
 
-    if (buf[data_end] != '\r' || buf[data_end + 1] != '\n') {
-      return RESP_ERROR;
-    }
+      size_t data_start = crlf_pos + 2;
+      size_t data_end = data_start + (size_t)bulk_len;
 
-    out->type = RESP_TYPE_BULK;
-    out->bulk = (char *)(buf + data_start);
-    out->bulk_len = (size_t)bulk_len;
-    *pos = data_end + 2;
-    return RESP_OK;
-  }
+      /* Need data_end + 2 bytes (\r\n) to be available. */
+      if (data_end + 2 > w) {
+        return RESP_NEED_MORE;
+      }
 
-  /* *<count>\r\n<element> ... */
-  case '*': {
-    int64_t count = 0;
-    if (parse_int_range(buf, line_start, crlf_pos, &count) != 0) {
-      return RESP_ERROR;
-    }
+      if (buf[data_end] != '\r' || buf[data_end + 1] != '\n') {
+        return RESP_ERROR;
+      }
 
-    /* Null array: *-1\r\n */
-    if (count < 0) {
-      out->type = RESP_TYPE_NULL;
-      *pos = crlf_pos + 2;
+      out->type = RESP_TYPE_BULK;
+      out->bulk = (char *)(buf + data_start);
+      out->bulk_len = (size_t)bulk_len;
+      *pos = data_end + 2;
       return RESP_OK;
     }
 
-    size_t array_start = crlf_pos + 2;
-    resp_parse_status_t st = parse_array(parser, &array_start, count, out);
-    if (st == RESP_OK) {
-      *pos = array_start;
-    }
-    return st;
-  }
+    /* *<count>\r\n<element> ... */
+    case '*': {
+      int64_t count = 0;
+      if (parse_int_range(buf, line_start, crlf_pos, &count) != 0) {
+        return RESP_ERROR;
+      }
 
-  default:
-    /* Unreachable — all non-RESP prefixes are caught above. */
-    return RESP_ERROR;
+      /* Null array: *-1\r\n */
+      if (count < 0) {
+        out->type = RESP_TYPE_NULL;
+        *pos = crlf_pos + 2;
+        return RESP_OK;
+      }
+
+      size_t array_start = crlf_pos + 2;
+      resp_parse_status_t st = parse_array(parser, &array_start, count, out);
+      if (st == RESP_OK) {
+        *pos = array_start;
+      }
+      return st;
+    }
+
+    default:
+      /* Unreachable — all non-RESP prefixes are caught above. */
+      return RESP_ERROR;
   }
 }
-
-/* =========================================================================
- * Public API
- * ====================================================================== */
 
 resp_parse_status_t resp_parser_next(resp_parser_t *parser, resp_value_t *out) {
   memset(out, 0, sizeof(*out));
 
-  /*
-   * Before we try to parse, opportunistically compact the buffer if
-   * r_pos has advanced past the halfway point.  This keeps the free
-   * head-room large enough for the next feed() call without thrashing.
-   */
   if (parser->r_pos > parser->buf_cap / 2) {
     compact(parser);
   }
 
   size_t pos = parser->r_pos;
 
-  /*
-   * We save pos before the call and pass a copy.  parse_value() modifies
-   * its local copy only on RESP_OK; on NEED_MORE or ERROR the original
-   * r_pos is left intact so we can retry cleanly.
-   */
   resp_parse_status_t status = parse_value(parser, &pos, out);
 
   if (status == RESP_OK) {
@@ -586,10 +463,6 @@ void resp_value_release(resp_parser_t *parser, resp_value_t *value) {
   memset(value, 0, sizeof(*value));
 }
 
-/* =========================================================================
- * Formatting helpers (write side — API unchanged)
- * ====================================================================== */
-
 static int append_str(char *dst, size_t cap, size_t *used, const char *s,
                       size_t len) {
   if (*used + len >= cap) {
@@ -604,12 +477,9 @@ int resp_format_simple(char *dst, size_t cap, const char *str) {
   size_t used = 0;
   size_t str_len = strlen(str);
 
-  if (append_str(dst, cap, &used, "+", 1) != 0)
-    return -1;
-  if (append_str(dst, cap, &used, str, str_len) != 0)
-    return -1;
-  if (append_str(dst, cap, &used, "\r\n", 2) != 0)
-    return -1;
+  if (append_str(dst, cap, &used, "+", 1) != 0) return -1;
+  if (append_str(dst, cap, &used, str, str_len) != 0) return -1;
+  if (append_str(dst, cap, &used, "\r\n", 2) != 0) return -1;
   dst[used] = '\0';
   return (int)used;
 }
@@ -618,12 +488,9 @@ int resp_format_error(char *dst, size_t cap, const char *msg) {
   size_t used = 0;
   size_t msg_len = strlen(msg);
 
-  if (append_str(dst, cap, &used, "-", 1) != 0)
-    return -1;
-  if (append_str(dst, cap, &used, msg, msg_len) != 0)
-    return -1;
-  if (append_str(dst, cap, &used, "\r\n", 2) != 0)
-    return -1;
+  if (append_str(dst, cap, &used, "-", 1) != 0) return -1;
+  if (append_str(dst, cap, &used, msg, msg_len) != 0) return -1;
+  if (append_str(dst, cap, &used, "\r\n", 2) != 0) return -1;
   dst[used] = '\0';
   return (int)used;
 }
@@ -635,12 +502,10 @@ int resp_format_integer(char *dst, size_t cap, int64_t value) {
 
 int resp_format_bulk(char *dst, size_t cap, const char *data, size_t len) {
   int n = snprintf(dst, cap, "$%zu\r\n", len);
-  if (n <= 0 || (size_t)n >= cap)
-    return -1;
+  if (n <= 0 || (size_t)n >= cap) return -1;
 
   size_t used = (size_t)n;
-  if (used + len + 3 > cap)
-    return -1;
+  if (used + len + 3 > cap) return -1;
 
   memcpy(dst + used, data, len);
   used += len;
@@ -651,11 +516,9 @@ int resp_format_bulk(char *dst, size_t cap, const char *data, size_t len) {
 }
 
 int resp_format_null(char *dst, size_t cap) {
-  /* RESP2 null bulk string */
   static const char null_bulk[] = "$-1\r\n";
   size_t len = sizeof(null_bulk) - 1;
-  if (len >= cap)
-    return -1;
+  if (len >= cap) return -1;
   memcpy(dst, null_bulk, len);
   dst[len] = '\0';
   return (int)len;

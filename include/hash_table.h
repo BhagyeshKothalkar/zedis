@@ -1,10 +1,10 @@
 #ifndef ZEDIS_HASH_TABLE_H
 #define ZEDIS_HASH_TABLE_H
 
-#include "arena.h"
-
 #include <stddef.h>
 #include <stdint.h>
+
+#include "arena.h"
 
 #define ZEDIS_HT_MAX_KEY 256
 #define ZEDIS_HT_MAX_VALUE 4096

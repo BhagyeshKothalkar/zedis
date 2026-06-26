@@ -1,11 +1,11 @@
 #include "event_loop.h"
-#include "zedis.h"
 
 #include <errno.h>
 #include <string.h>
+#include <sys/epoll.h>
 #include <unistd.h>
 
-#include <sys/epoll.h>
+#include "zedis.h"
 
 struct event_loop {
   int epfd;

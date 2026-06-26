@@ -1,13 +1,13 @@
 #ifndef ZEDIS_KEY_REGISTRY_H
 #define ZEDIS_KEY_REGISTRY_H
 
+#include <stddef.h>
+#include <stdint.h>
+
 #include "append_log.h"
 #include "arena.h"
 #include "btree.h"
 #include "hash_table.h"
-
-#include <stddef.h>
-#include <stdint.h>
 
 typedef struct zedis_zset_registry {
   zedis_btree_t *trees;

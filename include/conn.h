@@ -1,13 +1,12 @@
 #ifndef ZEDIS_CONN_H
 #define ZEDIS_CONN_H
 
+#include <stdbool.h>
+#include <stddef.h>
 
 #include "event_loop.h"
 #include "resp.h"
 #include "slab.h"
-
-#include <stdbool.h>
-#include <stddef.h>
 
 typedef struct zedis_server zedis_server_t;
 

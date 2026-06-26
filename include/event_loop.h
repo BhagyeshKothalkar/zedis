@@ -1,10 +1,10 @@
 #ifndef ZEDIS_EVENT_LOOP_H
 #define ZEDIS_EVENT_LOOP_H
 
-#include "arena.h"
-
 #include <stddef.h>
 #include <stdint.h>
+
+#include "arena.h"
 
 typedef struct event_loop event_loop_t;
 

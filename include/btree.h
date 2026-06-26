@@ -1,10 +1,10 @@
 #ifndef ZEDIS_BTREE_H
 #define ZEDIS_BTREE_H
 
-#include "arena.h"
-
 #include <stddef.h>
 #include <stdint.h>
+
+#include "arena.h"
 
 #define ZEDIS_BTREE_MAX_MEMBER 48
 #define ZEDIS_BTREE_MAX_ENTRIES 4096

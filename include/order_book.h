@@ -1,10 +1,10 @@
 #ifndef ZEDIS_ORDER_BOOK_H
 #define ZEDIS_ORDER_BOOK_H
 
-#include "arena.h"
-
 #include <stddef.h>
 #include <stdint.h>
+
+#include "arena.h"
 
 typedef struct price_level {
   int64_t bid_qty;

@@ -1,11 +1,11 @@
 #ifndef ZEDIS_SLAB_H
 #define ZEDIS_SLAB_H
 
-#include "arena.h"
-
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include "arena.h"
 
 #define ZEDIS_SLAB_64 64
 #define ZEDIS_SLAB_256 256

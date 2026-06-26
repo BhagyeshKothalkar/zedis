@@ -1,9 +1,9 @@
-#include "arena.h"
-#include "zedis.h"
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
+#include "arena.h"
+#include "zedis.h"
 
 static void print_usage(const char *prog) {
   fprintf(stderr,
@@ -25,9 +25,8 @@ static void print_usage(const char *prog) {
           prog, ZEDIS_DEFAULT_PORT, (size_t)ZEDIS_DEFAULT_MAX_KEYS,
           (size_t)ZEDIS_DEFAULT_MAX_CONNS, (size_t)ZEDIS_DEFAULT_RING_CAP,
           (size_t)ZEDIS_DEFAULT_MAX_ZSETS, (size_t)ZEDIS_DEFAULT_ZSET_MEMBERS,
-          (size_t)ZEDIS_DEFAULT_MAX_LISTS,
-          (size_t)ZEDIS_DEFAULT_AOL_SIZE, ZEDIS_DEFAULT_BOOK_MIN,
-          ZEDIS_DEFAULT_BOOK_MAX);
+          (size_t)ZEDIS_DEFAULT_MAX_LISTS, (size_t)ZEDIS_DEFAULT_AOL_SIZE,
+          ZEDIS_DEFAULT_BOOK_MIN, ZEDIS_DEFAULT_BOOK_MAX);
 }
 
 static zedis_config_t default_config(void) {

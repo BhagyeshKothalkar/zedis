@@ -1,11 +1,11 @@
 #ifndef ZEDIS_RING_BUFFER_H
 #define ZEDIS_RING_BUFFER_H
 
-#include "arena.h"
-
 #include <stdatomic.h>
 #include <stddef.h>
 #include <stdint.h>
+
+#include "arena.h"
 
 #define ZEDIS_RING_MSG_MAX 512
 

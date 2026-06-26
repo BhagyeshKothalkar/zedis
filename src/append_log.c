@@ -4,19 +4,10 @@
 #include <fcntl.h>
 #include <stdio.h>
 #include <string.h>
-#include <unistd.h>
-
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <unistd.h>
 
-/*
- * On-disk / mapped record layout:
- *   uint32_t prev_off   (0 = no previous element for this list chain)
- *   uint16_t key_len
- *   uint16_t val_len
- *   key[key_len]
- *   val[val_len]
- */
 typedef struct __attribute__((packed)) aol_hdr {
   uint32_t prev_off;
   uint16_t key_len;

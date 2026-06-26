@@ -1,55 +1,47 @@
 #include "server.h"
-#include "affinity.h"
 
 #include <errno.h>
 #include <fcntl.h>
 #include <inttypes.h>
+#include <netinet/in.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <unistd.h>
-
-#include <netinet/in.h>
 #include <sys/epoll.h>
 #include <sys/socket.h>
+#include <unistd.h>
+
+#include "affinity.h"
 
 static int set_nonblocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
-  if (flags < 0)
-    return -1;
+  if (flags < 0) return -1;
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 ? 0 : -1;
 }
 
 static int str_case_equal(const char *a, size_t a_len, const char *b) {
-  if (strlen(b) != a_len)
-    return 0;
+  if (strlen(b) != a_len) return 0;
   for (size_t i = 0; i < a_len; i++) {
     char ca = a[i], cb = b[i];
-    if (ca >= 'A' && ca <= 'Z')
-      ca = (char)(ca - 'A' + 'a');
-    if (cb >= 'A' && cb <= 'Z')
-      cb = (char)(cb - 'A' + 'a');
-    if (ca != cb)
-      return 0;
+    if (ca >= 'A' && ca <= 'Z') ca = (char)(ca - 'A' + 'a');
+    if (cb >= 'A' && cb <= 'Z') cb = (char)(cb - 'A' + 'a');
+    if (ca != cb) return 0;
   }
   return 1;
 }
 
 static int parse_i64(const char *s, size_t len, int64_t *out) {
-  if (len == 0)
-    return -1;
+  if (len == 0) return -1;
   int negative = 0;
   size_t i = 0;
   if (s[0] == '-') {
     negative = 1;
     i = 1;
   }
-  if (i >= len)
-    return -1;
+  if (i >= len) return -1;
   int64_t value = 0;
   for (; i < len; i++) {
-    if (s[i] < '0' || s[i] > '9')
-      return -1;
+    if (s[i] < '0' || s[i] > '9') return -1;
     value = value * 10 + (s[i] - '0');
   }
   *out = negative ? -value : value;
@@ -58,8 +50,7 @@ static int parse_i64(const char *s, size_t len, int64_t *out) {
 
 static int parse_int(const char *s, size_t len, int *out) {
   int64_t v = 0;
-  if (parse_i64(s, len, &v) != 0)
-    return -1;
+  if (parse_i64(s, len, &v) != 0) return -1;
   *out = (int)v;
   return 0;
 }
@@ -104,12 +95,10 @@ void server_broadcast_channel(zedis_server_t *server, const char *channel,
   int n = snprintf(msg, sizeof(msg),
                    "*3\r\n$7\r\nmessage\r\n$%zu\r\n%.*s\r\n$%zu\r\n", ch_len,
                    (int)ch_len, channel, payload_len);
-  if (n <= 0 || (size_t)n >= sizeof(msg))
-    return;
+  if (n <= 0 || (size_t)n >= sizeof(msg)) return;
 
   size_t used = (size_t)n;
-  if (used + payload_len + 2 >= sizeof(msg))
-    return;
+  if (used + payload_len + 2 >= sizeof(msg)) return;
 
   memcpy(msg + used, payload, payload_len);
   used += payload_len;
@@ -130,14 +119,13 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
   zedis_server_t *server = conn->server;
 
   if (cmd->type == RESP_TYPE_ARRAY && cmd->array_count == 0) {
-    return 0; // Silently ignore empty command line
+    return 0;  // Silently ignore empty command line
   }
 
   if (cmd->type != RESP_TYPE_ARRAY) {
     int n =
         resp_format_error(reply, sizeof(reply), "ERR invalid command format");
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -145,46 +133,39 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
   if (command == NULL || command->type != RESP_TYPE_BULK) {
     int n =
         resp_format_error(reply, sizeof(reply), "ERR invalid command format");
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
   if (str_case_equal(command->bulk, command->bulk_len, "PING")) {
     if (cmd->array_count == 1) {
       int n = resp_format_simple(reply, sizeof(reply), "PONG");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     resp_node_t *message = array_nth(cmd, 1);
     if (message != NULL && message->type == RESP_TYPE_BULK) {
       int n = resp_format_bulk(reply, sizeof(reply), message->bulk,
                                message->bulk_len);
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     }
     return 0;
   }
-
 
   if (str_case_equal(command->bulk, command->bulk_len, "ECHO")) {
     resp_node_t *message = array_nth(cmd, 1);
     if (message != NULL && message->type == RESP_TYPE_BULK) {
       int n = resp_format_bulk(reply, sizeof(reply), message->bulk,
                                message->bulk_len);
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int n =
         resp_format_error(reply, sizeof(reply),
                           "ERR wrong number of arguments for 'echo' command");
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
-
 
   if (str_case_equal(command->bulk, command->bulk_len, "SET")) {
     resp_node_t *key = array_nth(cmd, 1);
@@ -194,21 +175,18 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n =
           resp_format_error(reply, sizeof(reply),
                             "ERR wrong number of arguments for 'set' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     if (zedis_ht_set(&server->kv, key->bulk, key->bulk_len, val->bulk,
                      val->bulk_len) != 0) {
       int n = resp_format_error(reply, sizeof(reply),
                                 "ERR hash table full or value too large");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int n = resp_format_simple(reply, sizeof(reply), "OK");
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -218,8 +196,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n =
           resp_format_error(reply, sizeof(reply),
                             "ERR wrong number of arguments for 'get' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     char value[ZEDIS_HT_MAX_VALUE];
@@ -227,13 +204,11 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     if (zedis_ht_get(&server->kv, key->bulk, key->bulk_len, value,
                      sizeof(value), &value_len) != 0) {
       int n = resp_format_null(reply, sizeof(reply));
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int n = resp_format_bulk(reply, sizeof(reply), value, value_len);
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -245,8 +220,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n =
           resp_format_error(reply, sizeof(reply),
                             "ERR wrong number of arguments for 'bid' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int price = 0;
@@ -255,19 +229,16 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
         parse_i64(qty_arg->bulk, qty_arg->bulk_len, &qty) != 0) {
       int n =
           resp_format_error(reply, sizeof(reply), "ERR invalid bid arguments");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     if (zedis_book_bid(&server->book, price, qty) != 0) {
       int n = resp_format_error(reply, sizeof(reply), "ERR price out of range");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int n = resp_format_integer(reply, sizeof(reply), qty);
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -279,8 +250,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n =
           resp_format_error(reply, sizeof(reply),
                             "ERR wrong number of arguments for 'ask' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int price = 0;
@@ -289,19 +259,16 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
         parse_i64(qty_arg->bulk, qty_arg->bulk_len, &qty) != 0) {
       int n =
           resp_format_error(reply, sizeof(reply), "ERR invalid ask arguments");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     if (zedis_book_ask(&server->book, price, qty) != 0) {
       int n = resp_format_error(reply, sizeof(reply), "ERR price out of range");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int n = resp_format_integer(reply, sizeof(reply), qty);
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -311,28 +278,24 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n =
           resp_format_error(reply, sizeof(reply),
                             "ERR wrong number of arguments for 'book' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int price = 0;
     if (parse_int(price_arg->bulk, price_arg->bulk_len, &price) != 0) {
       int n = resp_format_error(reply, sizeof(reply), "ERR invalid price");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int64_t bid = 0, ask = 0;
     if (zedis_book_level(&server->book, price, &bid, &ask) != 0) {
       int n = resp_format_error(reply, sizeof(reply), "ERR price out of range");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int n = snprintf(reply, sizeof(reply),
                      "*2\r\n:%" PRId64 "\r\n:%" PRId64 "\r\n", bid, ask);
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -342,15 +305,13 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n =
           resp_format_error(reply, sizeof(reply),
                             "ERR wrong number of arguments for 'del' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int deleted =
         (zedis_ht_del(&server->kv, key->bulk, key->bulk_len) == 0) ? 1 : 0;
     int n = resp_format_integer(reply, sizeof(reply), deleted);
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -364,16 +325,14 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n =
           resp_format_error(reply, sizeof(reply),
                             "ERR wrong number of arguments for 'zadd' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int64_t score = 0;
     if (parse_i64(score_arg->bulk, score_arg->bulk_len, &score) != 0) {
       int n = resp_format_error(reply, sizeof(reply),
                                 "ERR value is not a valid float");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int64_t prev = 0;
@@ -384,13 +343,11 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
                            member->bulk, member->bulk_len) != 0) {
       int n = resp_format_error(reply, sizeof(reply),
                                 "ERR zset full or member too large");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int n = resp_format_integer(reply, sizeof(reply), existed ? 0 : 1);
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -402,24 +359,21 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n = resp_format_error(
           reply, sizeof(reply),
           "ERR wrong number of arguments for 'zscore' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int64_t score = 0;
     if (zedis_zset_reg_score(&server->zsets, key->bulk, key->bulk_len,
                              member->bulk, member->bulk_len, &score) != 0) {
       int n = resp_format_null(reply, sizeof(reply));
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     char score_buf[64];
     int slen = snprintf(score_buf, sizeof(score_buf), "%.17g", (double)score);
     if (slen > 0) {
       int n = resp_format_bulk(reply, sizeof(reply), score_buf, (size_t)slen);
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     }
     return 0;
   }
@@ -434,8 +388,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n = resp_format_error(
           reply, sizeof(reply),
           "ERR wrong number of arguments for 'zrange' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int64_t start = 0, stop = 0;
@@ -443,8 +396,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
         parse_i64(stop_arg->bulk, stop_arg->bulk_len, &stop) != 0) {
       int n = resp_format_error(reply, sizeof(reply),
                                 "ERR value is not an integer or out of range");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     char zreply[8192];
@@ -452,8 +404,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     if (zedis_zset_reg_range(&server->zsets, key->bulk, key->bulk_len, start,
                              stop, zreply, sizeof(zreply), &zlen) != 0) {
       int n = resp_format_error(reply, sizeof(reply), "ERR zrange failed");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     conn_queue_write(conn, zreply, (size_t)zlen);
@@ -468,23 +419,20 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n = resp_format_error(
           reply, sizeof(reply),
           "ERR wrong number of arguments for 'lpush' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     if (zedis_list_reg_lpush(&server->lists, &server->aol, key->bulk,
                              key->bulk_len, val->bulk, val->bulk_len) != 0) {
       int n = resp_format_error(reply, sizeof(reply),
                                 "ERR list full or append log full");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     uint32_t len = 0;
     zedis_list_reg_llen(&server->lists, key->bulk, key->bulk_len, &len);
     int n = resp_format_integer(reply, sizeof(reply), (int64_t)len);
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -498,8 +446,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n = resp_format_error(
           reply, sizeof(reply),
           "ERR wrong number of arguments for 'lrange' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     int64_t start = 0, stop = 0;
@@ -507,8 +454,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
         parse_i64(stop_arg->bulk, stop_arg->bulk_len, &stop) != 0) {
       int n = resp_format_error(reply, sizeof(reply),
                                 "ERR value is not an integer or out of range");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     char lreply[8192];
@@ -517,8 +463,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
                               key->bulk_len, start, stop, lreply,
                               sizeof(lreply), &llen) != 0) {
       int n = resp_format_error(reply, sizeof(reply), "ERR lrange failed");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     conn_queue_write(conn, lreply, (size_t)llen);
@@ -531,15 +476,13 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n =
           resp_format_error(reply, sizeof(reply),
                             "ERR wrong number of arguments for 'llen' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
     uint32_t len = 0;
     zedis_list_reg_llen(&server->lists, key->bulk, key->bulk_len, &len);
     int n = resp_format_integer(reply, sizeof(reply), (int64_t)len);
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -551,8 +494,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n = resp_format_error(
           reply, sizeof(reply),
           "ERR wrong number of arguments for 'publish' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
 
@@ -565,8 +507,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     if (zedis_ring_publish(&server->ring, ch, message->bulk,
                            message->bulk_len) != 0) {
       int n = resp_format_error(reply, sizeof(reply), "ERR ring buffer full");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
 
@@ -581,8 +522,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     server_broadcast_channel(server, ch, message->bulk, message->bulk_len);
 
     int n = resp_format_integer(reply, sizeof(reply), (int64_t)receivers);
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -592,8 +532,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       int n = resp_format_error(
           reply, sizeof(reply),
           "ERR wrong number of arguments for 'subscribe' command");
-      if (n > 0)
-        conn_queue_write(conn, reply, (size_t)n);
+      if (n > 0) conn_queue_write(conn, reply, (size_t)n);
       return 0;
     }
 
@@ -608,8 +547,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     int n = snprintf(reply, sizeof(reply),
                      "*3\r\n$9\r\nsubscribe\r\n$%zu\r\n%.*s\r\n:1\r\n", ch_len,
                      (int)ch_len, conn->subscribe_channel);
-    if (n > 0)
-      conn_queue_write(conn, reply, (size_t)n);
+    if (n > 0) conn_queue_write(conn, reply, (size_t)n);
     return 0;
   }
 
@@ -620,8 +558,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
 
   int n = snprintf(reply, sizeof(reply), "-ERR unknown command '%.*s'\r\n",
                    (int)command->bulk_len, command->bulk);
-  if (n > 0)
-    conn_queue_write(conn, reply, (size_t)n);
+  if (n > 0) conn_queue_write(conn, reply, (size_t)n);
   return 0;
 }
 
@@ -636,11 +573,9 @@ int server_dispatch_commands(conn_t *conn) {
     }
 
     if (status == RESP_ERROR) {
-
       char err[64];
       int n = resp_format_error(err, sizeof(err), "ERR protocol error");
-      if (n > 0)
-        conn_queue_write(conn, err, (size_t)n);
+      if (n > 0) conn_queue_write(conn, err, (size_t)n);
       conn_destroy(conn);
       return 1;
     }
@@ -674,8 +609,7 @@ void server_on_accept(event_loop_t *loop, int fd, uint32_t events,
     socklen_t client_len = sizeof(client_addr);
     int client_fd = accept(fd, (struct sockaddr *)&client_addr, &client_len);
     if (client_fd < 0) {
-      if (errno == EAGAIN || errno == EWOULDBLOCK)
-        return;
+      if (errno == EAGAIN || errno == EWOULDBLOCK) return;
       return;
     }
 
@@ -699,8 +633,7 @@ void server_on_accept(event_loop_t *loop, int fd, uint32_t events,
 
 static int create_listen_socket(uint16_t port) {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
-  if (fd < 0)
-    return -1;
+  if (fd < 0) return -1;
 
   int yes = 1;
   if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &yes, sizeof(yes)) != 0) {
@@ -749,12 +682,10 @@ static void server_defaults(zedis_config_t *cfg) {
 zedis_server_t *zedis_create(const zedis_config_t *config) {
   zedis_config_t cfg;
   server_defaults(&cfg);
-  if (config != NULL)
-    cfg = *config;
+  if (config != NULL) cfg = *config;
 
   zedis_server_t *server = calloc(1, sizeof(*server));
-  if (server == NULL)
-    return NULL;
+  if (server == NULL) return NULL;
 
   server->config = cfg;
 
@@ -850,8 +781,7 @@ zedis_server_t *zedis_create(const zedis_config_t *config) {
 }
 
 void zedis_destroy(zedis_server_t *server) {
-  if (server == NULL)
-    return;
+  if (server == NULL) return;
 
   while (server->conns_head != NULL) {
     conn_destroy(server->conns_head);
@@ -875,8 +805,7 @@ void zedis_destroy(zedis_server_t *server) {
 }
 
 int zedis_run(zedis_server_t *server) {
-  if (server == NULL)
-    return -1;
+  if (server == NULL) return -1;
 
   if (server->config.cpu_core >= 0) {
     if (zedis_pin_to_core(server->config.cpu_core) != 0) {

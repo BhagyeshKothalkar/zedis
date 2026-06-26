@@ -1,10 +1,10 @@
 #ifndef ZEDIS_RESP_H
 #define ZEDIS_RESP_H
 
-#include "slab.h"
-
 #include <stddef.h>
 #include <stdint.h>
+
+#include "slab.h"
 
 typedef enum resp_type {
   RESP_TYPE_INCOMPLETE = 0,
