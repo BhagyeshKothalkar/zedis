@@ -1,0 +1,75 @@
+==> Building zedis
+-- Configuring done (0.0s)
+-- Generating done (0.0s)
+-- Build files have been written to: /home/bhagyesh/projects/Zedis/build
+ninja: no work to do.
+==> Running unit tests
+Ran 55 tests, 0 failed
+Ran 50 RESP tests, 0 failed
+==> Valgrind memory check on unit tests
+==4961== Memcheck, a memory error detector
+==4961== Copyright (C) 2002-2024, and GNU GPL'd, by Julian Seward et al.
+==4961== Using Valgrind-3.26.0 and LibVEX; rerun with -h for copyright info
+==4961== Command: /home/bhagyesh/projects/Zedis/build/zedis_test
+==4961== 
+Ran 55 tests, 0 failed
+==4961== 
+==4961== HEAP SUMMARY:
+==4961==     in use at exit: 0 bytes in 0 blocks
+==4961==   total heap usage: 1 allocs, 1 frees, 4,096 bytes allocated
+==4961== 
+==4961== All heap blocks were freed -- no leaks are possible
+==4961== 
+==4961== For lists of detected and suppressed errors, rerun with: -s
+==4961== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+==4998== Memcheck, a memory error detector
+==4998== Copyright (C) 2002-2024, and GNU GPL'd, by Julian Seward et al.
+==4998== Using Valgrind-3.26.0 and LibVEX; rerun with -h for copyright info
+==4998== Command: /home/bhagyesh/projects/Zedis/build/zedis_test_resp
+==4998== 
+Ran 50 RESP tests, 0 failed
+==4998== 
+==4998== HEAP SUMMARY:
+==4998==     in use at exit: 0 bytes in 0 blocks
+==4998==   total heap usage: 6 allocs, 6 frees, 200,848 bytes allocated
+==4998== 
+==4998== All heap blocks were freed -- no leaks are possible
+==4998== 
+==4998== For lists of detected and suppressed errors, rerun with: -s
+==4998== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+==> Starting zedis on port 16379
+zedis listening on port 16379 (busy-poll=off, arena=268435456 bytes)
+==> Integration smoke tests
+==> Valgrind on zedis server (short workload)
+==5087== Memcheck, a memory error detector
+==5087== Copyright (C) 2002-2024, and GNU GPL'd, by Julian Seward et al.
+==5087== Using Valgrind-3.26.0 and LibVEX; rerun with -h for copyright info
+==5087== Command: /home/bhagyesh/projects/Zedis/build/zedis --port 16380 --no-busy-poll
+==5087== 
+zedis listening on port 16380 (busy-poll=off, arena=268435456 bytes)
+==5087== 
+==5087== Process terminating with default action of signal 15 (SIGTERM)
+==5087==    at 0x499D037: epoll_wait (epoll_wait.c:30)
+==5087==    by 0x4005AF1: event_loop_run_once (event_loop.c:111)
+==5087==    by 0x4005731: zedis_run (server.c:998)
+==5087==    by 0x4002096: main (main.c:201)
+==5087== 
+==5087== HEAP SUMMARY:
+==5087==     in use at exit: 480 bytes in 1 blocks
+==5087==   total heap usage: 6 allocs, 5 frees, 328,160 bytes allocated
+==5087== 
+==5087== 480 bytes in 1 blocks are still reachable in loss record 1 of 1
+==5087==    at 0x485F36C: calloc (vg_replace_malloc.c:1678)
+==5087==    by 0x4005008: zedis_create (server.c:864)
+==5087==    by 0x4001FC1: main (main.c:188)
+==5087== 
+==5087== LEAK SUMMARY:
+==5087==    definitely lost: 0 bytes in 0 blocks
+==5087==    indirectly lost: 0 bytes in 0 blocks
+==5087==      possibly lost: 0 bytes in 0 blocks
+==5087==    still reachable: 480 bytes in 1 blocks
+==5087==         suppressed: 0 bytes in 0 blocks
+==5087== 
+==5087== For lists of detected and suppressed errors, rerun with: -s
+==5087== ERROR SUMMARY: 0 errors from 0 contexts (suppressed: 0 from 0)
+==> All tests passed
