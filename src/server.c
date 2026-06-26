@@ -13,10 +13,6 @@
 #include <sys/epoll.h>
 #include <sys/socket.h>
 
-/* =========================================================================
- * Internal utilities
- * ====================================================================== */
-
 static int set_nonblocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   if (flags < 0)
@@ -24,10 +20,6 @@ static int set_nonblocking(int fd) {
   return fcntl(fd, F_SETFL, flags | O_NONBLOCK) == 0 ? 0 : -1;
 }
 
-/*
- * Case-insensitive comparison of a counted string [a, a+a_len) against a
- * NUL-terminated string b.  Returns 1 if equal, 0 otherwise.
- */
 static int str_case_equal(const char *a, size_t a_len, const char *b) {
   if (strlen(b) != a_len)
     return 0;
@@ -72,10 +64,6 @@ static int parse_int(const char *s, size_t len, int *out) {
   return 0;
 }
 
-/* -------------------------------------------------------------------------
- * Array element accessors
- * ---------------------------------------------------------------------- */
-
 static resp_node_t *array_nth(resp_value_t *cmd, size_t n) {
   resp_node_t *node = cmd->array_head;
   for (size_t i = 0; i < n && node != NULL; i++) {
@@ -83,10 +71,6 @@ static resp_node_t *array_nth(resp_value_t *cmd, size_t n) {
   }
   return node;
 }
-
-/* =========================================================================
- * Connection list management
- * ====================================================================== */
 
 void server_link_conn(zedis_server_t *server, conn_t *conn) {
   conn->next = server->conns_head;
@@ -111,10 +95,6 @@ void server_unlink_conn(zedis_server_t *server, conn_t *conn) {
     server->conn_count--;
   }
 }
-
-/* =========================================================================
- * Pub/sub
- * ====================================================================== */
 
 void server_broadcast_channel(zedis_server_t *server, const char *channel,
                               const char *payload, size_t payload_len) {
@@ -145,18 +125,6 @@ void server_broadcast_channel(zedis_server_t *server, const char *channel,
   }
 }
 
-/* =========================================================================
- * Command dispatch — single command
- * ====================================================================== */
-
-/*
- * Returns 0 if the connection remains alive, 1 if it was closed.
- *
- * NOTE: bulk/simple string pointers inside *cmd point into the parser's
- * internal buffer.  They are valid for the duration of this call.  Any
- * data that needs to outlive the function (e.g. subscribe_channel) is
- * copied explicitly below.
- */
 int server_handle_command(conn_t *conn, resp_value_t *cmd) {
   char reply[4096];
   zedis_server_t *server = conn->server;
@@ -182,9 +150,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* PING [message]                                                       */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "PING")) {
     if (cmd->array_count == 1) {
       int n = resp_format_simple(reply, sizeof(reply), "PONG");
@@ -202,9 +167,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* ECHO <message>                                                        */
-  /* ------------------------------------------------------------------ */
+
   if (str_case_equal(command->bulk, command->bulk_len, "ECHO")) {
     resp_node_t *message = array_nth(cmd, 1);
     if (message != NULL && message->type == RESP_TYPE_BULK) {
@@ -222,9 +185,7 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* SET <key> <value>                                                    */
-  /* ------------------------------------------------------------------ */
+
   if (str_case_equal(command->bulk, command->bulk_len, "SET")) {
     resp_node_t *key = array_nth(cmd, 1);
     resp_node_t *val = array_nth(cmd, 2);
@@ -251,9 +212,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* GET <key>                                                             */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "GET")) {
     resp_node_t *key = array_nth(cmd, 1);
     if (key == NULL || key->type != RESP_TYPE_BULK) {
@@ -279,9 +237,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* BID <price> <qty>                                                    */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "BID")) {
     resp_node_t *price_arg = array_nth(cmd, 1);
     resp_node_t *qty_arg = array_nth(cmd, 2);
@@ -316,9 +271,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* ASK <price> <qty>                                                    */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "ASK")) {
     resp_node_t *price_arg = array_nth(cmd, 1);
     resp_node_t *qty_arg = array_nth(cmd, 2);
@@ -353,9 +305,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* BOOK <price>                                                          */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "BOOK")) {
     resp_node_t *price_arg = array_nth(cmd, 1);
     if (price_arg == NULL || price_arg->type != RESP_TYPE_BULK) {
@@ -387,9 +336,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* DEL <key>                                                             */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "DEL")) {
     resp_node_t *key = array_nth(cmd, 1);
     if (key == NULL || key->type != RESP_TYPE_BULK) {
@@ -408,9 +354,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* ZADD <key> <score> <member>                                          */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "ZADD")) {
     resp_node_t *key = array_nth(cmd, 1);
     resp_node_t *score_arg = array_nth(cmd, 2);
@@ -451,9 +394,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* ZSCORE <key> <member>                                                */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "ZSCORE")) {
     resp_node_t *key = array_nth(cmd, 1);
     resp_node_t *member = array_nth(cmd, 2);
@@ -484,9 +424,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* ZRANGE <key> <start> <stop>                                          */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "ZRANGE")) {
     resp_node_t *key = array_nth(cmd, 1);
     resp_node_t *start_arg = array_nth(cmd, 2);
@@ -523,9 +460,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* LPUSH <key> <value>                                                  */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "LPUSH")) {
     resp_node_t *key = array_nth(cmd, 1);
     resp_node_t *val = array_nth(cmd, 2);
@@ -554,9 +488,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* LRANGE <key> <start> <stop>                                          */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "LRANGE")) {
     resp_node_t *key = array_nth(cmd, 1);
     resp_node_t *start_arg = array_nth(cmd, 2);
@@ -594,9 +525,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* LLEN <key>                                                            */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "LLEN")) {
     resp_node_t *key = array_nth(cmd, 1);
     if (key == NULL || key->type != RESP_TYPE_BULK) {
@@ -615,9 +543,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* PUBLISH <channel> <message>                                          */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "PUBLISH")) {
     resp_node_t *channel = array_nth(cmd, 1);
     resp_node_t *message = array_nth(cmd, 2);
@@ -631,7 +556,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
       return 0;
     }
 
-    /* Copy channel name — we need it as a NUL-terminated string. */
     char ch[64];
     size_t ch_len =
         channel->bulk_len < sizeof(ch) - 1 ? channel->bulk_len : sizeof(ch) - 1;
@@ -662,9 +586,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* SUBSCRIBE <channel>                                                  */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "SUBSCRIBE")) {
     resp_node_t *channel = array_nth(cmd, 1);
     if (channel == NULL || channel->type != RESP_TYPE_BULK) {
@@ -692,17 +613,11 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* QUIT                                                                 */
-  /* ------------------------------------------------------------------ */
   if (str_case_equal(command->bulk, command->bulk_len, "QUIT")) {
     conn_destroy(conn);
     return 1;
   }
 
-  /* ------------------------------------------------------------------ */
-  /* Unknown command                                                      */
-  /* ------------------------------------------------------------------ */
   int n = snprintf(reply, sizeof(reply), "-ERR unknown command '%.*s'\r\n",
                    (int)command->bulk_len, command->bulk);
   if (n > 0)
@@ -710,18 +625,6 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
   return 0;
 }
 
-/* =========================================================================
- * Drain loop — called after every read(2) on a connection fd
- * ====================================================================== */
-
-/*
- * Pull every complete RESP message out of conn->parser and dispatch it.
- *
- * Returns 0 if the connection survived, 1 if it was closed.
- *
- * Invariant: after this function returns 0, conn->parser contains at most
- * one incomplete message fragment awaiting more data.
- */
 int server_dispatch_commands(conn_t *conn) {
   resp_value_t cmd;
 
@@ -729,15 +632,11 @@ int server_dispatch_commands(conn_t *conn) {
     resp_parse_status_t status = resp_parser_next(&conn->parser, &cmd);
 
     if (status == RESP_NEED_MORE) {
-      /* Nothing more to dispatch right now — wait for next read. */
       return 0;
     }
 
     if (status == RESP_ERROR) {
-      /*
-       * Unrecoverable protocol error.  Send a best-effort error reply
-       * and close the connection.
-       */
+
       char err[64];
       int n = resp_format_error(err, sizeof(err), "ERR protocol error");
       if (n > 0)
@@ -759,10 +658,6 @@ int server_dispatch_commands(conn_t *conn) {
     resp_value_release(&conn->parser, &cmd);
   }
 }
-
-/* =========================================================================
- * Accept handler
- * ====================================================================== */
 
 void server_on_accept(event_loop_t *loop, int fd, uint32_t events,
                       void *userdata) {
@@ -801,10 +696,6 @@ void server_on_accept(event_loop_t *loop, int fd, uint32_t events,
     }
   }
 }
-
-/* =========================================================================
- * Server lifecycle
- * ====================================================================== */
 
 static int create_listen_socket(uint16_t port) {
   int fd = socket(AF_INET, SOCK_STREAM, 0);
