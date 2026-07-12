@@ -16,7 +16,11 @@ set(ZEDIS_SOURCES
     src/server.c
     src/event_loop.c
     src/conn.c
-    src/resp.c
+    src/resp_buf.c
+    src/resp_decode.c
+    src/resp_format.c
+    src/resp_nodes.c
+    src/resp_scan.c
     src/arena.c
     src/slab.c
     src/hash_table.c
@@ -45,7 +49,11 @@ add_executable(zedis_test tests/test_ds.c
 target_include_directories(zedis_test PRIVATE include)
 
 add_executable(zedis_test_resp tests/test_resp.c
-    src/resp.c
+    src/resp_buf.c
+    src/resp_decode.c
+    src/resp_format.c
+    src/resp_nodes.c
+    src/resp_scan.c
     src/slab.c
     src/arena.c
 )
