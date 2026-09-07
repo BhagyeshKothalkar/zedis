@@ -23,4 +23,8 @@ int event_loop_del(event_loop_t *loop, int fd);
 int event_loop_run_once(event_loop_t *loop, int block);
 void event_loop_stop(event_loop_t *loop);
 
+int event_loop_install_signal_handlers(void);
+void event_loop_restore_signal_handlers(void);
+int event_loop_signal_received(void);
+
 #endif /* ZEDIS_EVENT_LOOP_H */

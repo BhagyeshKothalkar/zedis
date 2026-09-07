@@ -1,11 +1,53 @@
+#define _POSIX_C_SOURCE 200809L
+
 #include "event_loop.h"
 
 #include <errno.h>
+#include <signal.h>
 #include <string.h>
 #include <sys/epoll.h>
 #include <unistd.h>
 
 #include "zedis.h"
+
+static volatile sig_atomic_t signal_received;
+static struct sigaction previous_sigterm;
+static struct sigaction previous_sigint;
+static int signal_handlers_installed;
+
+static void handle_shutdown_signal(int signum) { signal_received = signum; }
+
+int event_loop_install_signal_handlers(void) {
+  struct sigaction action;
+
+  memset(&action, 0, sizeof(action));
+  action.sa_handler = handle_shutdown_signal;
+  sigemptyset(&action.sa_mask);
+
+  if (sigaction(SIGTERM, &action, &previous_sigterm) != 0) {
+    return -1;
+  }
+  if (sigaction(SIGINT, &action, &previous_sigint) != 0) {
+    sigaction(SIGTERM, &previous_sigterm, NULL);
+    return -1;
+  }
+
+  signal_received = 0;
+  signal_handlers_installed = 1;
+  return 0;
+}
+
+void event_loop_restore_signal_handlers(void) {
+  if (!signal_handlers_installed) {
+    return;
+  }
+
+  sigaction(SIGTERM, &previous_sigterm, NULL);
+  sigaction(SIGINT, &previous_sigint, NULL);
+  signal_handlers_installed = 0;
+}
+
+int event_loop_signal_received(void) { return signal_received != 0; }
 
 struct event_loop {
   int epfd;
@@ -107,9 +149,20 @@ int event_loop_del(event_loop_t *loop, int fd) {
 }
 
 int event_loop_run_once(event_loop_t *loop, int block) {
+  if (loop == NULL || loop->stop || signal_received != 0) {
+    if (loop != NULL) {
+      loop->stop = 1;
+    }
+    return -1;
+  }
+
   int timeout = block ? -1 : 0;
   int n = epoll_wait(loop->epfd, loop->events, ZEDIS_MAX_EVENTS, timeout);
   if (n < 0) {
+    if (signal_received != 0) {
+      loop->stop = 1;
+      return -1;
+    }
     return errno == EINTR ? 0 : -1;
   }
 
@@ -128,4 +181,8 @@ int event_loop_run_once(event_loop_t *loop, int block) {
   return n;
 }
 
-void event_loop_stop(event_loop_t *loop) { loop->stop = 1; }
+void event_loop_stop(event_loop_t *loop) {
+  if (loop != NULL) {
+    loop->stop = 1;
+  }
+}

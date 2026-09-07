@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "arena.h"
+#include "event_loop.h"
 #include "zedis.h"
 
 static void print_usage(const char *prog) {
@@ -52,10 +53,16 @@ static zedis_config_t default_config(void) {
 int main(int argc, char **argv) {
   zedis_config_t config = default_config();
 
+  if (event_loop_install_signal_handlers() != 0) {
+    fprintf(stderr, "zedis: failed to install signal handlers\n");
+    return EXIT_FAILURE;
+  }
+
   for (int i = 1; i < argc; i++) {
     if (strcmp(argv[i], "--port") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.port = (uint16_t)atoi(argv[++i]);
@@ -65,6 +72,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--core") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.cpu_core = atoi(argv[++i]);
@@ -74,6 +82,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--arena-size") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.arena_size = (size_t)strtoull(argv[++i], NULL, 10);
@@ -83,6 +92,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--max-keys") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.max_keys = (size_t)strtoull(argv[++i], NULL, 10);
@@ -92,6 +102,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--max-conns") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.max_connections = (size_t)strtoull(argv[++i], NULL, 10);
@@ -101,6 +112,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--ring-cap") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.ring_capacity = (size_t)strtoull(argv[++i], NULL, 10);
@@ -110,6 +122,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--max-zsets") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.max_zsets = (size_t)strtoull(argv[++i], NULL, 10);
@@ -119,6 +132,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--zset-members") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.zset_members = (size_t)strtoull(argv[++i], NULL, 10);
@@ -128,6 +142,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--max-lists") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.max_lists = (size_t)strtoull(argv[++i], NULL, 10);
@@ -137,6 +152,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--aol-size") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.aol_size = (size_t)strtoull(argv[++i], NULL, 10);
@@ -146,6 +162,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--aol-path") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.aol_path = argv[++i];
@@ -155,6 +172,7 @@ int main(int argc, char **argv) {
     if (strcmp(argv[i], "--book-min") == 0) {
       if (i + 1 >= argc) {
         print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
         return EXIT_FAILURE;
       }
       config.book_price_min = atoi(argv[++i]);
@@ -177,16 +195,19 @@ int main(int argc, char **argv) {
 
     if (strcmp(argv[i], "--help") == 0 || strcmp(argv[i], "-h") == 0) {
       print_usage(argv[0]);
+      event_loop_restore_signal_handlers();
       return EXIT_SUCCESS;
     }
 
     print_usage(argv[0]);
+    event_loop_restore_signal_handlers();
     return EXIT_FAILURE;
   }
 
   zedis_server_t *server = zedis_create(&config);
   if (server == NULL) {
     fprintf(stderr, "zedis: failed to start server on port %u\n", config.port);
+    event_loop_restore_signal_handlers();
     return EXIT_FAILURE;
   }
 
@@ -199,5 +220,9 @@ int main(int argc, char **argv) {
 
   int rc = zedis_run(server);
   zedis_destroy(server);
+  event_loop_restore_signal_handlers();
+  if (event_loop_signal_received()) {
+    return EXIT_SUCCESS;
+  }
   return rc == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }
