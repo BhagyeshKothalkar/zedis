@@ -6,3 +6,5 @@ compile_commands.json
 *.so
 zedis
 CMakeFiles
+.git
+.github
