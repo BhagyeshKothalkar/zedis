@@ -74,17 +74,62 @@ jobs:
           docker push \
             "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}"
 
+      # -----------------------------------------------------------------------
+      # SSH / OS Login
+      # -----------------------------------------------------------------------
+
       - name: Generate ephemeral SSH key
         if: github.event_name == 'push'
         run: |
-          ssh-keygen -t rsa -b 3072 -N "" -f /tmp/zedis-deploy-key
+          ssh-keygen \
+            -t rsa \
+            -b 3072 \
+            -N "" \
+            -f /tmp/zedis-deploy-key
 
-      - name: Add SSH key to OS Login
+      - name: Add ephemeral key to CI service account OS Login
         if: github.event_name == 'push'
+        env:
+          CI_SERVICE_ACCOUNT: ${{ env.CI_SERVICE_ACCOUNT }}
+          PROJECT_ID: ${{ env.PROJECT_ID }}
         run: |
-          gcloud compute os-login ssh-keys add \
-            --key-file=/tmp/zedis-deploy-key.pub \
-            --ttl=10m
+          PUBLIC_KEY="$(cat /tmp/zedis-deploy-key.pub)"
+          EXPIRATION="$(($(date +%s) + 600))000000"
+          ACCESS_TOKEN="$(gcloud auth print-access-token)"
+
+          jq -n \
+            --arg key "$PUBLIC_KEY" \
+            --arg expiration "$EXPIRATION" \
+            '{
+              key: $key,
+              expirationTimeUsec: $expiration
+            }' \
+            > /tmp/oslogin-request.json
+
+          curl --fail-with-body \
+            --silent \
+            --show-error \
+            --request POST \
+            --header "Authorization: Bearer ${ACCESS_TOKEN}" \
+            --header "Content-Type: application/json" \
+            "https://oslogin.googleapis.com/v1/users/${CI_SERVICE_ACCOUNT}:importSshPublicKey?projectId=${PROJECT_ID}" \
+            --data @/tmp/oslogin-request.json
+
+      - name: Get OS Login username
+        if: github.event_name == 'push'
+        id: oslogin
+        env:
+          CI_SERVICE_ACCOUNT: ${{ env.CI_SERVICE_ACCOUNT }}
+        run: |
+          OSLOGIN_USERNAME="$(
+            gcloud compute os-login describe-profile \
+              --format='value(posixAccounts[0].username)'
+          )"
+
+          test -n "$OSLOGIN_USERNAME"
+
+          echo "OS Login username: $OSLOGIN_USERNAME"
+          echo "username=$OSLOGIN_USERNAME" >> "$GITHUB_OUTPUT"
 
       - name: Deploy
         if: github.event_name == 'push'
@@ -93,6 +138,7 @@ jobs:
           instance_name: ${{ env.VM_NAME }}
           zone: ${{ env.VM_ZONE }}
           project_id: ${{ env.PROJECT_ID }}
+          user: ${{ steps.oslogin.outputs.username }}
           ssh_private_key: /tmp/zedis-deploy-key
           command: |
             sudo /usr/local/bin/deploy-zedis \
