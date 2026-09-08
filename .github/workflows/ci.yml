@@ -115,16 +115,31 @@ jobs:
         if: github.event_name == 'push'
         run: sleep 5
 
+      - name: Get OS Login username
+        if: github.event_name == 'push'
+        id: oslogin
+        run: |
+          OSLOGIN_USERNAME="$(
+            gcloud compute os-login describe-profile \
+              --format='value(posixAccounts[0].username)'
+          )"
+
+          test -n "$OSLOGIN_USERNAME"
+
+          echo "OS Login username: $OSLOGIN_USERNAME"
+          echo "username=$OSLOGIN_USERNAME" >> "$GITHUB_OUTPUT"
+
       - name: Deploy
         if: github.event_name == 'push'
         env:
           PROJECT_ID: ${{ env.PROJECT_ID }}
           VM_NAME: ${{ env.VM_NAME }}
           VM_ZONE: ${{ env.VM_ZONE }}
+          OSLOGIN_USERNAME: ${{ steps.oslogin.outputs.username }}
           IMAGE_URI: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
         run: |
           gcloud compute ssh \
-            "$VM_NAME" \
+            "${OSLOGIN_USERNAME}@${VM_NAME}" \
             --project="$PROJECT_ID" \
             --zone="$VM_ZONE" \
             --tunnel-through-iap \
