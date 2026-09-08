@@ -6,9 +6,19 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID: zedisv1
+  REGION: asia-south1
+  REPOSITORY: zedis
+  IMAGE_NAME: zedis
+
 jobs:
   build:
-    name: Build Zedis
+    name: Build and publish Zedis
     runs-on: ubuntu-24.04
 
     steps:
@@ -39,5 +49,23 @@ jobs:
       - name: Build Docker image
         run: |
           docker build \
-            --tag zedis:test \
+            --tag "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}" \
             .
+
+      - name: Authenticate to Google Cloud
+        if: github.event_name == 'push'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: projects/373840764878/locations/global/workloadIdentityPools/github/providers/github
+          service_account: zedis-ci@zedisv1.iam.gserviceaccount.com
+
+      - name: Configure Docker
+        if: github.event_name == 'push'
+        run: |
+          gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      - name: Push Docker image
+        if: github.event_name == 'push'
+        run: |
+          docker push \
+            "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}"
