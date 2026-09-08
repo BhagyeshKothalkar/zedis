@@ -74,10 +74,6 @@ jobs:
           docker push \
             "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}"
 
-      # -----------------------------------------------------------------------
-      # SSH / OS Login
-      # -----------------------------------------------------------------------
-
       - name: Generate ephemeral SSH key
         if: github.event_name == 'push'
         run: |
@@ -115,31 +111,23 @@ jobs:
             "https://oslogin.googleapis.com/v1/users/${CI_SERVICE_ACCOUNT}:importSshPublicKey?projectId=${PROJECT_ID}" \
             --data @/tmp/oslogin-request.json
 
-      - name: Get OS Login username
+      - name: Wait for OS Login propagation
         if: github.event_name == 'push'
-        id: oslogin
-        env:
-          CI_SERVICE_ACCOUNT: ${{ env.CI_SERVICE_ACCOUNT }}
-        run: |
-          OSLOGIN_USERNAME="$(
-            gcloud compute os-login describe-profile \
-              --format='value(posixAccounts[0].username)'
-          )"
-
-          test -n "$OSLOGIN_USERNAME"
-
-          echo "OS Login username: $OSLOGIN_USERNAME"
-          echo "username=$OSLOGIN_USERNAME" >> "$GITHUB_OUTPUT"
+        run: sleep 5
 
       - name: Deploy
         if: github.event_name == 'push'
-        uses: google-github-actions/ssh-compute@v2
-        with:
-          instance_name: ${{ env.VM_NAME }}
-          zone: ${{ env.VM_ZONE }}
-          project_id: ${{ env.PROJECT_ID }}
-          user: ${{ steps.oslogin.outputs.username }}
-          ssh_private_key: /tmp/zedis-deploy-key
-          command: |
-            sudo /usr/local/bin/deploy-zedis \
-              ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        env:
+          PROJECT_ID: ${{ env.PROJECT_ID }}
+          VM_NAME: ${{ env.VM_NAME }}
+          VM_ZONE: ${{ env.VM_ZONE }}
+          IMAGE_URI: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
+        run: |
+          gcloud compute ssh \
+            "$VM_NAME" \
+            --project="$PROJECT_ID" \
+            --zone="$VM_ZONE" \
+            --tunnel-through-iap \
+            --ssh-key-file=/tmp/zedis-deploy-key \
+            --quiet \
+            --command="sudo /usr/local/bin/deploy-zedis $IMAGE_URI"
