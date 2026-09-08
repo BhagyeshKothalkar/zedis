@@ -1,3 +1,4 @@
+```yaml
 name: Zedis CI
 
 on:
@@ -34,7 +35,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             build-essential \
-            cmake
+            cmake \
+            curl \
+            jq
 
       - name: Configure
         run: |
@@ -58,10 +61,13 @@ jobs:
 
       - name: Authenticate to Google Cloud
         if: github.event_name == 'push'
+        id: auth
         uses: google-github-actions/auth@v3
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
           service_account: ${{ env.CI_SERVICE_ACCOUNT }}
+          token_format: access_token
+          access_token_lifetime: 300s
 
       - name: Configure Docker
         if: github.event_name == 'push'
@@ -85,13 +91,12 @@ jobs:
 
       - name: Add ephemeral key to CI service account OS Login
         if: github.event_name == 'push'
+        id: oslogin
         env:
-          CI_SERVICE_ACCOUNT: ${{ env.CI_SERVICE_ACCOUNT }}
-          PROJECT_ID: ${{ env.PROJECT_ID }}
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: |
           PUBLIC_KEY="$(cat /tmp/zedis-deploy-key.pub)"
           EXPIRATION="$(($(date +%s) + 600))000000"
-          ACCESS_TOKEN="$(gcloud auth print-access-token)"
 
           jq -n \
             --arg key "$PUBLIC_KEY" \
@@ -102,26 +107,22 @@ jobs:
             }' \
             > /tmp/oslogin-request.json
 
-          curl --fail-with-body \
-            --silent \
-            --show-error \
-            --request POST \
-            --header "Authorization: Bearer ${ACCESS_TOKEN}" \
-            --header "Content-Type: application/json" \
-            "https://oslogin.googleapis.com/v1/users/${CI_SERVICE_ACCOUNT}:importSshPublicKey?projectId=${PROJECT_ID}" \
-            --data @/tmp/oslogin-request.json
+          RESPONSE="$(
+            curl --fail-with-body \
+              --silent \
+              --show-error \
+              --request POST \
+              --header "Authorization: Bearer ${ACCESS_TOKEN}" \
+              --header "Content-Type: application/json" \
+              "https://oslogin.googleapis.com/v1/users/${CI_SERVICE_ACCOUNT}:importSshPublicKey?projectId=${PROJECT_ID}" \
+              --data @/tmp/oslogin-request.json
+          )"
 
-      - name: Wait for OS Login propagation
-        if: github.event_name == 'push'
-        run: sleep 5
+          echo "$RESPONSE" | jq .
 
-      - name: Get OS Login username
-        if: github.event_name == 'push'
-        id: oslogin
-        run: |
           OSLOGIN_USERNAME="$(
-            gcloud compute os-login describe-profile \
-              --format='value(posixAccounts[0].username)'
+            echo "$RESPONSE" |
+              jq -r '.loginProfile.posixAccounts[0].username // empty'
           )"
 
           test -n "$OSLOGIN_USERNAME"
@@ -132,6 +133,7 @@ jobs:
       - name: Deploy
         if: github.event_name == 'push'
         env:
+          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
           PROJECT_ID: ${{ env.PROJECT_ID }}
           VM_NAME: ${{ env.VM_NAME }}
           VM_ZONE: ${{ env.VM_ZONE }}
@@ -146,3 +148,4 @@ jobs:
             --ssh-key-file=/tmp/zedis-deploy-key \
             --quiet \
             --command="sudo /usr/local/bin/deploy-zedis $IMAGE_URI"
+```
