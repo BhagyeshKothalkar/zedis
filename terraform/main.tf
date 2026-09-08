@@ -4,9 +4,8 @@ resource "google_compute_instance" "zedis" {
   zone         = "asia-south1-b"
 
   metadata = {
-    startup-script = templatefile("${path.module}/startup.sh", {
-      zedis_image = var.zedis_image
-    })
+    enable-oslogin = "TRUE"
+    startup-script = file("${path.module}/startup.sh")
   }
 
   boot_disk {
