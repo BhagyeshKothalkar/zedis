@@ -132,18 +132,22 @@ jobs:
       - name: Deploy
         if: github.event_name == 'push'
         env:
-          ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
-          PROJECT_ID: ${{ env.PROJECT_ID }}
-          VM_NAME: ${{ env.VM_NAME }}
-          VM_ZONE: ${{ env.VM_ZONE }}
-          OSLOGIN_USERNAME: ${{ steps.oslogin.outputs.username }}
+          OSLOGIN_USERNAME: ${{ env.OSLOGIN_USERNAME }}
           IMAGE_URI: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
         run: |
-          gcloud compute ssh \
-            "${OSLOGIN_USERNAME}@${VM_NAME}" \
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+
+          cp /tmp/zedis-deploy-key ~/.ssh/zedis-deploy-key
+          chmod 600 ~/.ssh/zedis-deploy-key
+
+          gcloud compute config-ssh \
             --project="$PROJECT_ID" \
-            --zone="$VM_ZONE" \
-            --tunnel-through-iap \
-            --ssh-key-file=/tmp/zedis-deploy-key \
-            --quiet \
-            --command="sudo /usr/local/bin/deploy-zedis $IMAGE_URI"
+            --quiet
+
+          ssh \
+            -i ~/.ssh/zedis-deploy-key \
+            -o StrictHostKeyChecking=no \
+            -o ProxyCommand="gcloud compute start-iap-tunnel %h %p --listen-on-stdin --project=$PROJECT_ID --zone=$VM_ZONE" \
+            "$OSLOGIN_USERNAME@$VM_NAME" \
+            "sudo /usr/local/bin/deploy-zedis $IMAGE_URI"
