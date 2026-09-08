@@ -3,6 +3,12 @@ resource "google_compute_instance" "zedis" {
   machine_type = "c3-standard-4"
   zone         = "asia-south1-b"
 
+  metadata = {
+    startup-script = templatefile("${path.module}/startup.sh", {
+      zedis_image = var.zedis_image
+    })
+  }
+
   boot_disk {
     initialize_params {
       image = "ubuntu-2404-noble-amd64-v20260906"
@@ -27,4 +33,18 @@ resource "google_compute_instance" "zedis" {
       "https://www.googleapis.com/auth/cloud-platform"
     ]
   }
+}
+
+resource "google_compute_firewall" "zedis" {
+  name    = "allow-zedis"
+  network = "default"
+
+  allow {
+    protocol = "tcp"
+    ports    = ["16379"]
+  }
+
+  source_ranges = ["0.0.0.0/0"]
+
+  target_tags = ["zedis"]
 }
