@@ -35,3 +35,9 @@ jobs:
         run: |
           ls -lh build/zedis
           file build/zedis
+
+      - name: Build Docker image
+        run: |
+          docker build \
+            --tag zedis:test \
+            .
