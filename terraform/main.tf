@@ -48,3 +48,8 @@ resource "google_compute_firewall" "zedis" {
 
   target_tags = ["zedis"]
 }
+
+resource "google_service_account" "zedis_ci" {
+  account_id   = "zedis-ci"
+  display_name = "Zedis GitHub Actions CI"
+}
