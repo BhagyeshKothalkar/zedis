@@ -16,6 +16,7 @@
 
 struct zedis_server {
   zedis_config_t config;
+  struct zedis_metrics *metrics;
   event_loop_t *loop;
   int listen_fd;
   bool running;

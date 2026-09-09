@@ -37,6 +37,8 @@ typedef struct zedis_config {
   int book_price_min;
   int book_price_max;
   bool busy_poll;
+  const char *metrics_dir;
+  unsigned long long metrics_interval_ms;
 } zedis_config_t;
 
 zedis_server_t *zedis_create(const zedis_config_t *config);

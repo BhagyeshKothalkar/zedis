@@ -14,6 +14,7 @@ add_compile_options(-Wall -Wextra -Wpedantic -Werror)
 set(ZEDIS_SOURCES
     src/main.c
     src/server.c
+    src/metrics.c
     src/event_loop.c
     src/conn.c
     src/resp_buf.c

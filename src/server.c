@@ -12,6 +12,7 @@
 #include <unistd.h>
 
 #include "affinity.h"
+#include "metrics.h"
 
 static int set_nonblocking(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
@@ -491,6 +492,8 @@ int server_handle_command(conn_t *conn, resp_value_t *cmd) {
     return 0;
   }
 
+  zedis_metrics_record_command(conn->server, entry->name,
+                               strlen(entry->name));
   return entry->fn(conn, cmd);
 }
 
@@ -609,12 +612,18 @@ static void server_defaults(zedis_config_t *cfg) {
   cfg->book_price_min = ZEDIS_DEFAULT_BOOK_MIN;
   cfg->book_price_max = ZEDIS_DEFAULT_BOOK_MAX;
   cfg->busy_poll = true;
+  cfg->metrics_dir = "/var/lib/node_exporter/textfile_collector";
+  cfg->metrics_interval_ms = 1000ULL;
 }
 
 zedis_server_t *zedis_create(const zedis_config_t *config) {
   zedis_config_t cfg;
   server_defaults(&cfg);
   if (config != NULL) cfg = *config;
+  if (cfg.metrics_dir == NULL) {
+    cfg.metrics_dir = "/var/lib/node_exporter/textfile_collector";
+  }
+  if (cfg.metrics_interval_ms == 0) cfg.metrics_interval_ms = 1000ULL;
 
   zedis_server_t *server = calloc(1, sizeof(*server));
   if (server == NULL) return NULL;
@@ -708,12 +717,16 @@ zedis_server_t *zedis_create(const zedis_config_t *config) {
     return NULL;
   }
 
+  (void)zedis_metrics_init(server, server->config.metrics_dir,
+                           server->config.metrics_interval_ms);
   server->running = true;
   return server;
 }
 
 void zedis_destroy(zedis_server_t *server) {
   if (server == NULL) return;
+
+  zedis_metrics_destroy(server);
 
   while (server->conns_head != NULL) {
     conn_destroy(server->conns_head);
@@ -746,7 +759,9 @@ int zedis_run(zedis_server_t *server) {
     }
   }
 
+  zedis_metrics_maybe_write(server);
   while (server->running) {
+    zedis_metrics_maybe_write(server);
     if (event_loop_run_once(server->loop, !server->config.busy_poll) < 0) {
       return -1;
     }

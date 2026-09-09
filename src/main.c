@@ -22,6 +22,8 @@ static void print_usage(const char *prog) {
           "  --aol-path PATH       Append log file (default anonymous mmap)\n"
           "  --book-min PRICE      Order book min price (default %d)\n"
           "  --book-max PRICE      Order book max price (default %d)\n"
+          "  --metrics-dir PATH    Prometheus textfile collector directory\n"
+          "  --metrics-interval MS Metrics snapshot interval (default 1000)\n"
           "  --no-busy-poll        Use blocking epoll (dev/debug only)\n",
           prog, ZEDIS_DEFAULT_PORT, (size_t)ZEDIS_DEFAULT_MAX_KEYS,
           (size_t)ZEDIS_DEFAULT_MAX_CONNS, (size_t)ZEDIS_DEFAULT_RING_CAP,
@@ -46,6 +48,8 @@ static zedis_config_t default_config(void) {
       .book_price_min = ZEDIS_DEFAULT_BOOK_MIN,
       .book_price_max = ZEDIS_DEFAULT_BOOK_MAX,
       .busy_poll = true,
+      .metrics_dir = "/var/lib/node_exporter/textfile_collector",
+      .metrics_interval_ms = 1000ULL,
   };
   return cfg;
 }
@@ -190,6 +194,26 @@ int main(int argc, char **argv) {
 
     if (strcmp(argv[i], "--no-busy-poll") == 0) {
       config.busy_poll = false;
+      continue;
+    }
+
+    if (strcmp(argv[i], "--metrics-dir") == 0) {
+      if (i + 1 >= argc) {
+        print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
+        return EXIT_FAILURE;
+      }
+      config.metrics_dir = argv[++i];
+      continue;
+    }
+
+    if (strcmp(argv[i], "--metrics-interval") == 0) {
+      if (i + 1 >= argc) {
+        print_usage(argv[0]);
+        event_loop_restore_signal_handlers();
+        return EXIT_FAILURE;
+      }
+      config.metrics_interval_ms = strtoull(argv[++i], NULL, 10);
       continue;
     }
 
