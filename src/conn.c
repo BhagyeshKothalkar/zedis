@@ -21,7 +21,7 @@ static int write_buf_append(conn_t *conn, const char *data, size_t len) {
 
 static void conn_enable_write(conn_t *conn) {
   event_loop_mod(conn->loop, conn->fd, EPOLLIN | EPOLLOUT | EPOLLET,
-                 conn_on_readable, conn);
+                 conn_on_writable, conn);
 }
 
 static void conn_disable_write(conn_t *conn) {
