@@ -67,8 +67,8 @@ jobs:
       - name: Validate Compose and monitoring configuration
         run: |
           docker compose config --quiet
-          docker compose run --rm prometheus \
-            promtool check config /etc/prometheus/prometheus.yml
+          docker compose run --rm --entrypoint promtool prometheus \
+            check config /etc/prometheus/prometheus.yml
           jq -e \
             '.uid == "zedis-overview" and (.panels | length) >= 3 and any(.panels[]; any(.targets[]; .expr == "zedis_up"))' \
             monitoring/grafana/dashboards/zedis.json
