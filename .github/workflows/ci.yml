@@ -36,7 +36,8 @@ jobs:
             build-essential \
             cmake \
             curl \
-            jq
+            jq \
+            valgrind
 
       - name: Run tests
         run: |
