@@ -38,6 +38,10 @@ jobs:
             curl \
             jq
 
+      - name: Run tests
+        run: |
+          ./scripts/run_tests.sh
+
       - name: Configure
         run: |
           cmake -S . -B build \
