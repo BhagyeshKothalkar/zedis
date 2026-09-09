@@ -64,6 +64,17 @@ jobs:
             --tag "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}" \
             .
 
+      - name: Validate Compose and monitoring configuration
+        run: |
+          docker compose config --quiet
+          docker compose run --rm prometheus \
+            promtool check config /etc/prometheus/prometheus.yml
+          jq -e \
+            '.uid == "zedis-overview" and (.panels | length) >= 3 and any(.panels[]; any(.targets[]; .expr == "zedis_up"))' \
+            monitoring/grafana/dashboards/zedis.json
+          test -f monitoring/grafana/provisioning/datasources/prometheus.yml
+          test -f monitoring/grafana/provisioning/dashboards/dashboards.yml
+
       - name: Authenticate to Google Cloud
         if: github.event_name == 'push'
         id: auth
@@ -139,10 +150,18 @@ jobs:
 
           chmod 600 /tmp/zedis-deploy-key
 
-          ssh \
-            -i /tmp/zedis-deploy-key \
-            -o StrictHostKeyChecking=no \
-            -o UserKnownHostsFile=/dev/null \
-            -o ProxyCommand="gcloud compute start-iap-tunnel ${VM_NAME} 22 --listen-on-stdin --project=${PROJECT_ID} --zone=${VM_ZONE}" \
+          SSH_OPTIONS=(
+            -i /tmp/zedis-deploy-key
+            -o StrictHostKeyChecking=no
+            -o UserKnownHostsFile=/dev/null
+            -o ProxyCommand="gcloud compute start-iap-tunnel ${VM_NAME} 22 --listen-on-stdin --project=${PROJECT_ID} --zone=${VM_ZONE}"
+          )
+
+          tar -czf - docker-compose.yml monitoring |
+            ssh "${SSH_OPTIONS[@]}" \
+              "${OSLOGIN_USERNAME}@${VM_NAME}" \
+              "sudo tar -xzf - -C /opt/zedis"
+
+          ssh "${SSH_OPTIONS[@]}" \
             "${OSLOGIN_USERNAME}@${VM_NAME}" \
             "sudo /usr/local/bin/deploy-zedis ${IMAGE}"

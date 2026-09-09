@@ -45,6 +45,8 @@ resource "google_compute_firewall" "zedis" {
 
   source_ranges = ["0.0.0.0/0"]
 
+  # Prometheus, Grafana, and Node Exporter bind to VM loopback in Compose and
+  # intentionally have no public firewall rules.
   target_tags = ["zedis"]
 }
 
