@@ -37,7 +37,8 @@ jobs:
             cmake \
             curl \
             jq \
-            valgrind
+            valgrind \
+            redis-tools
 
       - name: Run tests
         run: |
