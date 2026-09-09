@@ -78,7 +78,6 @@ jobs:
         run: |
           docker push \
             "${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}"
-
       - name: Generate ephemeral SSH key
         if: github.event_name == 'push'
         run: |
@@ -90,7 +89,6 @@ jobs:
 
       - name: Add ephemeral key to CI service account OS Login
         if: github.event_name == 'push'
-        id: oslogin
         env:
           ACCESS_TOKEN: ${{ steps.auth.outputs.access_token }}
         run: |
@@ -126,28 +124,19 @@ jobs:
 
           test -n "$OSLOGIN_USERNAME"
 
-          echo "OS Login username: $OSLOGIN_USERNAME"
-          echo "username=$OSLOGIN_USERNAME" >> "$GITHUB_OUTPUT"
+          echo "OSLOGIN_USERNAME=$OSLOGIN_USERNAME" >> "$GITHUB_ENV"
 
       - name: Deploy
         if: github.event_name == 'push'
-        env:
-          OSLOGIN_USERNAME: ${{ env.OSLOGIN_USERNAME }}
-          IMAGE_URI: ${{ env.REGION }}-docker.pkg.dev/${{ env.PROJECT_ID }}/${{ env.REPOSITORY }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
         run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPOSITORY}/${IMAGE_NAME}:${GITHUB_SHA}"
 
-          cp /tmp/zedis-deploy-key ~/.ssh/zedis-deploy-key
-          chmod 600 ~/.ssh/zedis-deploy-key
-
-          gcloud compute config-ssh \
-            --project="$PROJECT_ID" \
-            --quiet
+          chmod 600 /tmp/zedis-deploy-key
 
           ssh \
-            -i ~/.ssh/zedis-deploy-key \
+            -i /tmp/zedis-deploy-key \
             -o StrictHostKeyChecking=no \
-            -o ProxyCommand="gcloud compute start-iap-tunnel %h %p --listen-on-stdin --project=$PROJECT_ID --zone=$VM_ZONE" \
-            "$OSLOGIN_USERNAME@$VM_NAME" \
-            "sudo /usr/local/bin/deploy-zedis $IMAGE_URI"
+            -o UserKnownHostsFile=/dev/null \
+            -o ProxyCommand="gcloud compute start-iap-tunnel ${VM_NAME} 22 --listen-on-stdin --project=${PROJECT_ID} --zone=${VM_ZONE}" \
+            "${OSLOGIN_USERNAME}@${VM_NAME}" \
+            "sudo /usr/local/bin/deploy-zedis ${IMAGE}"
