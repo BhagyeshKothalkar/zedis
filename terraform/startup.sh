@@ -56,6 +56,7 @@ chmod 600 "${ENV_FILE}"
 
 compose() {
     docker compose \
+        --project-name zedis \
         --project-directory "${DEPLOY_DIR}" \
         --env-file "${ENV_FILE}" \
         --file "${COMPOSE_FILE}" \
@@ -65,7 +66,15 @@ compose() {
 echo "Deploying ${IMAGE}"
 
 compose config --quiet
+
+# Remove the pre-Compose Zedis deployment left by older Terraform.
+if docker container inspect zedis >/dev/null 2>&1; then
+    echo "Removing legacy standalone Zedis container"
+    docker rm -f zedis
+fi
+
 compose pull zedis
+compose down --remove-orphans
 compose up -d --no-build
 
 required_services=(zedis node-exporter prometheus grafana)
